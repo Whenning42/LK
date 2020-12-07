@@ -1,5 +1,6 @@
 import lk
 import numpy as np
+import math
 
 def TestGaussianPyramid():
     orig = np.zeros((64, 64))
@@ -19,5 +20,16 @@ def TestGaussianPyramid():
     assert(pyramid[2][1, 1] == 1)
     assert(pyramid[2][10, 10] == 0)
 
+def TestToGreyscale():
+    im = np.zeros((4, 4, 3))
+    im[0, 0, :] = 1
+    im[0, 1, :] = 0
+    greyscale = lk.ToGreyscale(im)
+
+    assert(greyscale.shape == (4, 4))
+    assert(math.isclose(greyscale[0, 0], 1))
+    assert(math.isclose(greyscale[0, 1], 0))
+
 TestGaussianPyramid()
+TestToGreyscale()
 print("All tests passed!")
