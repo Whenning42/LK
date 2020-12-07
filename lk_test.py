@@ -1,6 +1,7 @@
 import lk
 import numpy as np
 import math
+import scipy
 
 def TestGaussianPyramid():
     orig = np.zeros((64, 64))
@@ -38,8 +39,8 @@ def TestStructureTensor():
     dx = 1
     dy = -2
     a = np.zeros((2, 2))
-    a[0, 1] = dx
-    a[1, 0] = dy
+    a[1, 0] = dx
+    a[0, 1] = dy
     st = lk.StructureTensor(a)
 
     assert(math.isclose(st[0, 0, 0, 0], dx ** 2))
@@ -63,7 +64,7 @@ def TestSpatialMatrix():
     assert(np.allclose(sm[1, 1],            sm[1, 0] \
                                + st[0, 2] + st[1, 2] + st[2, 2]))
 
-def TestPixelwiseInversion():
+def TestPixelwiseInvert():
     matrices = np.zeros((2, 1, 2, 2))
     # Invertible
     m_0 = np.array([[0, 1], [-1, 0]])
@@ -72,11 +73,11 @@ def TestPixelwiseInversion():
     matrices[0, 0] = m_0
     matrices[1, 0] = m_1
 
-    inverted = lk.PixelwiseInversion(matrices)
+    inverted = lk.PixelwiseInvert(matrices, det_thres = .1)
 
     assert(inverted.shape == matrices.shape)
-    assert(np.allclose(m_0 * inverted[0, 0], np.eye(2)))
-    assert(np.allclose(m_1, np.zeros(2, 2)))
+    assert(np.allclose(np.matmul(inverted[0, 0], m_0), np.eye(2)))
+    assert(np.allclose(inverted[1, 0], np.zeros((2, 2))))
 
 def TestBilinearUpsample():
     a = np.zeros((2, 2, 2))
@@ -104,10 +105,40 @@ def TestBilinearUpsample():
     assert(b.shape[0] == a.shape[0] * 2)
     assert(b.shape[1] == a.shape[1] * 2)
 
+import sys
+np.set_printoptions(threshold=sys.maxsize)
+np.set_printoptions(precision=3)
+np.set_printoptions(linewidth=400)
+np.set_printoptions(suppress=True)
+
 def TestLKSimple():
-    pass
+    a = np.zeros((16, 16))
+    a[4, 4] = 10
+    a = scipy.ndimage.gaussian_filter(a, 1)
+
+    b = np.zeros((16, 16))
+    b[8, 6] = 10
+    b = scipy.ndimage.gaussian_filter(b, 1)
+
+    flow = lk.LK(a, b, levels = 3)
+    print("flow[0, 0]:", flow[0, 0])
+    print("flow[5, 5]:", flow[5, 5])
+    print("flow[9, 9]:", flow[9, 9])
+
+    print(a)
+    print(b)
+
+    print(flow[:, :, 0])
+    print(flow[:, :, 1])
+
+    assert(np.allclose(flow[5, 5], [4, 2]))
+    assert(np.allclose(flow[9, 9], [4, 2]))
 
 TestGaussianPyramid()
 TestToGreyscale()
+TestStructureTensor()
+TestSpatialMatrix()
+TestPixelwiseInvert()
 TestBilinearUpsample()
+TestLKSimple()
 print("All tests passed!")

@@ -35,13 +35,44 @@ def ToGreyscale(im):
     return .2126 * im[:, :, 0] + .7152 * im[:, :, 1] + .0722 * im[:, :, 2]
 
 def StructureTensor(im):
-    pass
+    # gradient's dimensions are (X, Y, 2) with gradient[x, y, 0] = dX and gradient[..., 1] = dY
+    gradient = np.zeros((*im.shape, 2))
+    gradient[:, :, 0], gradient[:, :, 1] = np.gradient(im)
 
-def SpatialMatrix(structure_tensor):
-    pass
+    # This line gives [dx dy]T * [dx dy] at each (x, y).
+    # The resulting tensor has dimensions (X, Y, 2, 2)
+    return gradient[:, :, :, np.newaxis] * gradient[:, :, np.newaxis, :]
 
-def PixelwiseInversion(matrices):
-    pass
+def SpatialMatrix(structure_tensor, window_x, window_y):
+        G = np.empty(structure_tensor.shape)
+        G[:, :, 0, 0] = scipy.signal.convolve2d(structure_tensor[:, :, 0, 0], \
+                                                np.ones((window_x, window_y)), mode='same')
+        G[:, :, 1, 0] = scipy.signal.convolve2d(structure_tensor[:, :, 1, 0], \
+                                                np.ones((window_x, window_y)), mode='same')
+        G[:, :, 0, 1] = scipy.signal.convolve2d(structure_tensor[:, :, 0, 1], \
+                                                np.ones((window_x, window_y)), mode='same')
+        G[:, :, 1, 1] = scipy.signal.convolve2d(structure_tensor[:, :, 1, 1], \
+                                                np.ones((window_x, window_y)), mode='same')
+        return G
+
+def PixelwiseInvert(m, det_thres):
+    # We could try using np.linalg.inv here for cleaner code, but catching dealing with
+    # singular matrices is messy that way.
+    m_det = m[:, :, 0, 0] * m[:, :, 1, 1] - \
+            m[:, :, 0, 1] * m[:, :, 1, 0]
+    well_posed = np.abs(m_det) > det_thres
+
+    # Setting m_det to 1 where not well posed prevents a warning on the next line when we find
+    # 1/m_det
+    m_det = np.where(well_posed, m_det, 1)
+    inv_m_det = np.where(well_posed, 1/m_det, 0)
+
+    m_inv = np.empty(m.shape)
+    m_inv[:, :, 0, 0] =  inv_m_det * m[:, :, 1, 1]
+    m_inv[:, :, 1, 0] = -inv_m_det * m[:, :, 1, 0]
+    m_inv[:, :, 0, 1] = -inv_m_det * m[:, :, 0, 1]
+    m_inv[:, :, 1, 1] =  inv_m_det * m[:, :, 0, 0]
+    return m_inv
 
 def BilinearUpsample(im):
     upsampled = np.zeros((im.shape[0] * 2, im.shape[1] * 2, *im.shape[2:]))
@@ -53,13 +84,13 @@ def BilinearUpsample(im):
     return upsampled
 
 # Takes two luminance images im_0 and im_1 and calculates the optical flow from im_0 to im_1.
-def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1, v_thres = .01):
+def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 10, det_thres = .1, v_thres = .01):
     assert(im_0.shape == im_1.shape)
     assert(im_0.shape[0] % 2**(levels - 1) == 0)
     assert(im_0.shape[1] % 2**(levels - 1) == 0)
 
-    pyramid_0 = GaussianPyramid(im, levels)
-    pyramid_1 = GaussianPyramid(im, levels)
+    pyramid_0 = GaussianPyramid(im_0, levels)
+    pyramid_1 = GaussianPyramid(im_1, levels)
 
     # Our warp is parameterized as guess_warp[x, y] = [Dx, Dy].
     guess_warp = np.zeros((*pyramid_0[-1].shape, 2))
@@ -83,23 +114,9 @@ def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1
         gradient = np.zeros((*I_0.shape, 2))
         gradient[:, :, 0], gradient[:, :, 1] = np.gradient(I_0)
 
-        # This line gives [dx dy]T * [dx dy] at each (x, y).
-        # The resulting tensor has dimensions (X, Y, 2, 2)
-        structure_tensor = gradient[:, :, :, np.newaxis] * gradient[:, :, np.newaxis, :]
-
-        G = np.convolve(structure_tensor, np.ones((window_x, window_y, 1, 1)), mode='same')
-
-        # Find G_inv of dimensions (X, Y, 2, 2)
-        # We could try using np.linalg.inv here for cleaner code, but catching dealing with
-        # singular matrices is messy that way.
-        G_det = G[:, :, 0, 0] * G[:, :, 1, 1] - G[:, :, 0, 1] * G[:, :, 1, 0]
-        well_posed = spatial_det > det_thres
-        inv_G_det = np.where(well_pose, 1/G_det, 0)
-        G_inv = np.empty(G_det.shape)
-        G_inv[:, :, 0, 0] =  inv_G_det * G[:, :, 1, 1]
-        G_inv[:, :, 1, 0] = -inv_G_det * G[:, :, 1, 0]
-        G_inv[:, :, 0, 1] = -inv_G_det * G[:, :, 0, 1]
-        G_inv[:, :, 1, 1] =  inv_G_det * G[:, :, 0, 0]
+        structure_tensor = StructureTensor(I_0)
+        G = SpatialMatrix(structure_tensor, window_x, window_y)
+        G_inv = PixelwiseInvert(G, det_thres = det_thres)
 
         v = np.zeros((*I_0.shape, 2, 1))
 
@@ -107,7 +124,7 @@ def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1
 
         for k in range(K):
             # (X, Y, 2)
-            warped_coords = coords + guess_warp + v
+            warped_coords = coords + guess_warp + v.squeeze()
             # (XY, 2)
             warped_coord_list = warped_coords.reshape(-1, 2, 1).squeeze()
 
@@ -118,18 +135,21 @@ def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1
             warped_coord_list[:, 1] = np.clip(warped_coord_list[:, 1], 0, I_1.shape[1] - 1)
             I_1_warped_list = scipy.interpolate.griddata(coord_list, value_list, warped_coords)
             I_1_warped = I_1_warped_list.reshape(*I_0.shape)
+            # (X, Y)
             dI = I_0 - I_1_warped
 
-            # (X, Y, 2, 1)
-            image_mismatch = dI * gradient[:, :, :, np.newaxis]
+            # Extend and tile dI to be of shape (X, Y, 2, 1) matching that of gradient.
+            dI_reshaped = np.tile(dI[:, :, np.newaxis, np.newaxis], (1, 1, 2, 1))
+            image_mismatch = dI_reshaped * gradient[:, :, :, np.newaxis]
 
             # (X, Y, 2, 2) * (X, Y, 2, 1) = (X, Y, 2, 1)
-            dV = G_inv * b
+            dV = np.matmul(G_inv, image_mismatch)
             v = v + dV
-            if np.max(np.abs(dV)) < v_thes:
+            print("Level: %d, Iter: %d, Max update: %f" % (level, k, np.max(np.abs(dV))))
+            if np.max(np.abs(dV)) < v_thres:
                 break
 
-        guess_warp += v
+        guess_warp += v.squeeze()
         if level > 0:
             guess_warp = BilinearUpsample(guess_warp)
-    return warp
+    return guess_warp
