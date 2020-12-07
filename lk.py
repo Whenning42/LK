@@ -36,6 +36,10 @@ def ToGreyscale(im):
 
 # Takes two luminance images im_0 and im_1 and calculates the optical flow from im_0 to im_1.
 def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1, v_thres = .01):
+    assert(im_0.shape == im_1.shape)
+    assert(im_0.shape[0] % 2**(levels - 1) == 0)
+    assert(im_0.shape[1] % 2**(levels - 1) == 0)
+
     pyramid_0 = GaussianPyramid(im, levels)
     pyramid_1 = GaussianPyramid(im, levels)
 
@@ -48,7 +52,6 @@ def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1
 
         x_r = np.arange(I_1.shape[0])
         y_r = np.arange(I_1.shape[1])
-
         # These matrices are used with the griddata() call below to sample our matrix at
         # non-integer points.
         # coords is a matrix such that coords[x, y] = [x, y] and is of dimensions (X, Y, 2)
@@ -66,7 +69,7 @@ def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1
         # The resulting tensor has dimensions (X, Y, 2, 2)
         structure_tensor = gradient[:, :, :, np.newaxis] * gradient[:, :, np.newaxis, :]
 
-        G = np.convolve(structure_tensor, np.ones((3, 3, 1, 1)), mode='same')
+        G = np.convolve(structure_tensor, np.ones((window_x, window_y, 1, 1)), mode='same')
 
         # Find G_inv of dimensions (X, Y, 2, 2)
         # We could try using np.linalg.inv here for cleaner code, but catching dealing with
@@ -108,9 +111,10 @@ def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1
             if np.max(np.abs(dV)) < v_thes:
                 break
 
+        guess_warp += v
         if level > 0:
-            # TODO: Need to upscale and interpolate here.
-            new_guess_warp = np.zeros((*pyramid_0[level - 1], 2))
-            new_guess_warp[::2, ::2, :] = guess_warp
-            new_guess_warp[1::2, 1::2, :] = (guess_warp + guess_warp[1:, 1:]) / 2
+            guess_warp = np.zeros((*pyramid_0[level - 1], 2))
+            guess_warp[::2, ::2, :] = warp
+            guess_warp[1::2, 1::2, :] = (warp + warp[1:, 1:]) / 2
             guess_warp = new_guess_warp
+    return warp
