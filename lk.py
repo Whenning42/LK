@@ -34,6 +34,28 @@ def ToGreyscale(im):
     # These constants come from Wikipedia.
     return .2126 * im[:, :, 0] + .7152 * im[:, :, 1] + .0722 * im[:, :, 2]
 
+def StructureTensor(im):
+    pass
+
+def SpatialMatrix(structure_tensor):
+    pass
+
+def PixelwiseInversion(matrices):
+    pass
+
+def BilinearUpsample(im):
+    # 0   1   2   3
+    #
+    # 0   1   2   3
+    #
+    upsampled = np.zeros((im.shape[0] * 2, im.shape[1] * 2, *im.shape[2:]))
+    upsampled[0::2,   0::2,   :] = im
+    upsampled[1:-2:2, 0::2,   :] = (im[:-1, :]   + im[1:, :]) / 2
+    upsampled[0::2,   1:-2:2, :] = (im[:, :-1]   + im[:, 1:]) / 2
+    upsampled[1:-2:2, 1:-2:2, :] = (im[:-1, :-1] + im[1:, :-1] + \
+                                    im[:-1, 1:]  + im[1:, 1:]) / 4
+    return upsampled
+
 # Takes two luminance images im_0 and im_1 and calculates the optical flow from im_0 to im_1.
 def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1, v_thres = .01):
     assert(im_0.shape == im_1.shape)
@@ -43,7 +65,7 @@ def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1
     pyramid_0 = GaussianPyramid(im, levels)
     pyramid_1 = GaussianPyramid(im, levels)
 
-    # Our warp is parameterized as (Dx, Dy).
+    # Our warp is parameterized as guess_warp[x, y] = [Dx, Dy].
     guess_warp = np.zeros((*pyramid_0[-1].shape, 2))
 
     for level in range(levels - 1, -1, -1):
@@ -56,7 +78,7 @@ def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1
         # non-integer points.
         # coords is a matrix such that coords[x, y] = [x, y] and is of dimensions (X, Y, 2)
         # coord_list is the same matrix reshaped to be (XY, 2)
-        # value list is I_1 sampled at the coord_list coordiants and is of size (XY,)
+        # value list is I_1 sampled at the coord_list coordinates and is of size (XY,)
         coords = np.stack(np.meshgrid(x_r, y_r, indexing='ij'), axis=-1)
         coord_list = coords.reshape(-1, 2, 1).squeeze()
         value_list = I_1.reshape(-1, 1).squeeze()
@@ -87,7 +109,7 @@ def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1
 
         x, y = np.arange(I_0.shape[0]), np.arange(I_0.shape[1])
 
-        for k in range(K)
+        for k in range(K):
             # (X, Y, 2)
             warped_coords = coords + guess_warp + v
             # (XY, 2)
@@ -113,8 +135,5 @@ def LK(im_0, im_1, window_x = 3, window_y = 3, levels = 3, K = 5, det_thres = .1
 
         guess_warp += v
         if level > 0:
-            guess_warp = np.zeros((*pyramid_0[level - 1], 2))
-            guess_warp[::2, ::2, :] = warp
-            guess_warp[1::2, 1::2, :] = (warp + warp[1:, 1:]) / 2
-            guess_warp = new_guess_warp
+            guess_warp = BilinearUpsample(guess_warp)
     return warp
