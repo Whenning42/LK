@@ -44,10 +44,6 @@ def PixelwiseInversion(matrices):
     pass
 
 def BilinearUpsample(im):
-    # 0   1   2   3
-    #
-    # 0   1   2   3
-    #
     upsampled = np.zeros((im.shape[0] * 2, im.shape[1] * 2, *im.shape[2:]))
     upsampled[0::2,   0::2,   :] = im
     upsampled[1:-2:2, 0::2,   :] = (im[:-1, :]   + im[1:, :]) / 2
